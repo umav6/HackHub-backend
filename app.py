@@ -3,6 +3,7 @@ from flask_cors import CORS
 import json
 from datetime import datetime
 from database import get_connection, init_db, seed_events
+from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 CORS(app)  # allows the Vite dev server (different port) to call this API
@@ -129,6 +130,58 @@ def delete_registration(registration_id):
         return jsonify({"error": "Registration not found"}), 404
     return jsonify({"message": "Cancelled"}), 200
 
+@app.route("/")
+def home():
+    return jsonify({"message": "HackHub API is running", "try": ["/api/events", "/api/registrations", "/admin"]})
+
+
+ADMIN_HTML = """
+<!doctype html>
+<html><head><title>HackHub Database</title>
+<style>
+  body{font-family:Arial;margin:30px;background:#fffdf7}
+  h1{color:#0f766e}
+  table{border-collapse:collapse;width:100%;margin-bottom:10px}
+  th,td{border:1px solid #ccc;padding:8px;text-align:left;font-size:14px}
+  th{background:#0f766e;color:#fff}
+</style></head><body>
+<h1>HackHub Database (hackhub.db)</h1>
+{% for title, rows in tables %}
+  <h2>{{ title }} ({{ rows|length }} rows)</h2>
+  {% if rows %}
+  <table>
+    <tr>{% for k in rows[0].keys() %}<th>{{ k }}</th>{% endfor %}</tr>
+    {% for r in rows %}
+    <tr>{% for k in r.keys() %}<td>{{ r[k] }}</td>{% endfor %}</tr>
+    {% endfor %}
+  </table>
+  {% else %}<p>No rows yet.</p>{% endif %}
+{% endfor %}
+</body></html>
+"""
+
+
+@app.route("/admin")
+def admin():
+    conn = get_connection()
+    events = conn.execute(
+        "SELECT id, name, organizer, date, mode, location, prize_pool, team_size_limit FROM events"
+    ).fetchall()
+    regs = conn.execute("""
+        SELECT r.id, e.name AS event, r.team_name, r.registered_on
+        FROM registrations r JOIN events e ON e.id = r.event_id
+        ORDER BY r.id DESC
+    """).fetchall()
+    mates = conn.execute("""
+        SELECT t.id, t.registration_id, r.team_name, t.name, t.email, t.role
+        FROM teammates t JOIN registrations r ON r.id = t.registration_id
+        ORDER BY t.id DESC
+    """).fetchall()
+    conn.close()
+    return render_template_string(
+        ADMIN_HTML,
+        tables=[("events", events), ("registrations", regs), ("teammates", mates)],
+    )
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
